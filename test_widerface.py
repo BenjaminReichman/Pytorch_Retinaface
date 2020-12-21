@@ -1,4 +1,3 @@
-from __future__ import print_function
 import os
 import argparse
 import torch
@@ -11,16 +10,17 @@ import cv2
 from models.retinaface import RetinaFace
 from utils.box_utils import decode, decode_landm
 from utils.timer import Timer
+from data.data_augment import _random_corruption
 
 
 parser = argparse.ArgumentParser(description='Retinaface')
-parser.add_argument('-m', '--trained_model', default='./weights/Resnet50_Final.pth',
+parser.add_argument('-m', '--trained_model', default='./weights/fine_tuningResnet50_Final.pth',
                     type=str, help='Trained state_dict file path to open')
 parser.add_argument('--network', default='resnet50', help='Backbone network mobile0.25 or resnet50')
 parser.add_argument('--origin_size', default=True, type=str, help='Whether use origin image size to evaluate')
 parser.add_argument('--save_folder', default='./widerface_evaluate/widerface_txt/', type=str, help='Dir to save txt results')
 parser.add_argument('--cpu', action="store_true", default=False, help='Use cpu inference')
-parser.add_argument('--dataset_folder', default='./data/widerface/val/images/', type=str, help='dataset path')
+parser.add_argument('--dataset_folder', default='/data/vision/oliva/scratch/datasets/WIDERFace/val/images/', type=str, help='dataset path')
 parser.add_argument('--confidence_threshold', default=0.02, type=float, help='confidence_threshold')
 parser.add_argument('--top_k', default=5000, type=int, help='top_k')
 parser.add_argument('--nms_threshold', default=0.4, type=float, help='nms_threshold')
@@ -90,10 +90,11 @@ if __name__ == '__main__':
 
     with open(testset_list, 'r') as fr:
         test_dataset = fr.read().split()
+    test_dataset = [i for i in test_dataset if not i.isnumeric()]
+    test_dataset = [i for i in test_dataset if i != "#"]
     num_images = len(test_dataset)
 
     _t = {'forward_pass': Timer(), 'misc': Timer()}
-
     # testing begin
     for i, img_name in enumerate(test_dataset):
         image_path = testset_folder + img_name
@@ -115,11 +116,12 @@ if __name__ == '__main__':
 
         if resize != 1:
             img = cv2.resize(img, None, None, fx=resize, fy=resize, interpolation=cv2.INTER_LINEAR)
+        img = _random_corruption(img)
         im_height, im_width, _ = img.shape
         scale = torch.Tensor([img.shape[1], img.shape[0], img.shape[1], img.shape[0]])
         img -= (104, 117, 123)
         img = img.transpose(2, 0, 1)
-        img = torch.from_numpy(img).unsqueeze(0)
+        img = torch.from_numpy(img).unsqueeze(0).type(torch.FloatTensor)
         img = img.to(device)
         scale = scale.to(device)
 

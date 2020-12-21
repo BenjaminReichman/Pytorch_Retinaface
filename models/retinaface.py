@@ -5,10 +5,12 @@ import torchvision.models._utils as _utils
 import torch.nn.functional as F
 from collections import OrderedDict
 
-from models.net import MobileNetV1 as MobileNetV1
-from models.net import FPN as FPN
-from models.net import SSH as SSH
-
+# from models.net import MobileNetV1 as MobileNetV1
+# from models.net import FPN as FPN
+# from models.net import SSH as SSH
+from anonymization_networks.Pytorch_Retinaface.models.net import MobileNetV1 as MobileNetV1
+from anonymization_networks.Pytorch_Retinaface.models.net import FPN as FPN
+from anonymization_networks.Pytorch_Retinaface.models.net import SSH as SSH
 
 
 class ClassHead(nn.Module):
@@ -104,7 +106,7 @@ class RetinaFace(nn.Module):
             landmarkhead.append(LandmarkHead(inchannels,anchor_num))
         return landmarkhead
 
-    def forward(self,inputs):
+    def forward(self,inputs, return_features=False):
         out = self.body(inputs)
 
         # FPN
@@ -124,4 +126,6 @@ class RetinaFace(nn.Module):
             output = (bbox_regressions, classifications, ldm_regressions)
         else:
             output = (bbox_regressions, F.softmax(classifications, dim=-1), ldm_regressions)
+        if return_features:
+            return output, features
         return output

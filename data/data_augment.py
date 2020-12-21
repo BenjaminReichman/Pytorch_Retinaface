@@ -1,7 +1,8 @@
 import cv2
 import numpy as np
 import random
-from utils.box_utils import matrix_iof
+# from utils.box_utils import matrix_iof
+from anonymization_networks.Pytorch_Retinaface.utils.box_utils import matrix_iof
 
 
 def _crop(image, boxes, labels, landm, img_dim):
@@ -200,10 +201,84 @@ def _pad_to_square(image, rgb_mean, pad_image_flag):
 def _resize_subtract_mean(image, insize, rgb_mean):
     interp_methods = [cv2.INTER_LINEAR, cv2.INTER_CUBIC, cv2.INTER_AREA, cv2.INTER_NEAREST, cv2.INTER_LANCZOS4]
     interp_method = interp_methods[random.randrange(5)]
-    image = cv2.resize(image, (insize, insize), interpolation=interp_method)
-    image = image.astype(np.float32)
+    image = cv2.resize(image.astype(np.float32), (insize, insize), interpolation=interp_method)
+    # image = image.astype(np.float32)
     image -= rgb_mean
     return image.transpose(2, 0, 1)
+
+
+def _add_noise(image, noise_type, multiplicative_factor_range):
+    if noise_type == "random":
+        noise_type = np.random.choice(["gaussian", "poisson"])
+    if noise_type == "gaussian":
+        noise = np.random.normal(loc=0, scale=1, size=image.shape)
+    elif noise_type == "poisson":
+        noise = np.random.poisson(2, size=image.shape)
+
+    image = image + noise * np.random.randint(multiplicative_factor_range[0], multiplicative_factor_range[1]+1)
+    return image.clip(0, 255)
+
+
+def _random_noise_patch(image, noise_type, multiplicative_factor_range):
+    image_height, image_width, _ = image.shape
+    crop_height = np.random.randint(1, image_height//2)
+    crop_width = np.random.randint(1, image_width//2)
+    start_x = np.random.randint(0, image_width - crop_width)
+    start_y = np.random.randint(0, image_height - crop_height)
+    noisy_patch = _add_noise(image[start_y:start_y + crop_height, start_x:start_x + crop_width], noise_type, multiplicative_factor_range)
+    image[start_y:start_y + crop_height, start_x:start_x + crop_width] = np.array(noisy_patch)
+    return image.clip(0, 255)
+
+
+def _random_resample(image, resample_range):
+    resample_amount = np.random.randint(resample_range[0], resample_range[1])
+    image_size = image.shape
+    image = cv2.resize(image, (image_size[0] // resample_amount, image_size[1] // resample_amount))
+    image = cv2.resize(image, image_size[:2])
+    return image
+
+
+def _motion_average_filter(image, filter_type):
+    if filter_type == "random":
+        filter_type = np.random.choice(["motionx", "motiony", "average"])
+    if filter_type == "motionx":
+        blur = (1 / 9) * np.array(
+            [[1, 0, 1],
+             [1, 0, 1],
+             [1, 0, 1]]
+        )
+    elif filter_type == "motiony":
+        blur = (1 / 9) * np.array(
+            [[1, 1, 1],
+             [0, 0, 0],
+             [1, 1, 1]]
+        )
+    elif filter_type == "average":
+        blur = (1 / 9) * np.array(
+            [[1, 1, 1],
+             [1, 1, 1],
+             [1, 1, 1]]
+        )
+
+    image = cv2.filter2D(image, -1, blur)
+    return image
+
+
+def _random_corruption(image):
+    noise_prob = np.random.randint(0, 6)
+    resample_prob = np.random.randint(0, 5)
+    blur_prob = np.random.randint(0, 4)
+
+    if resample_prob >= 3:
+        image = _random_resample(image, [2, 8])
+    if blur_prob == 3:
+        image = _motion_average_filter(image, "random")
+    if noise_prob == 3 or noise_prob == 4:
+        image = _add_noise(image, "random", [1, 15])
+    elif noise_prob == 5:
+        image = _random_noise_patch(image, "random", [1, 15])
+    return image
+
 
 
 class preproc(object):
@@ -221,16 +296,15 @@ class preproc(object):
 
         image_t, boxes_t, labels_t, landm_t, pad_image_flag = _crop(image, boxes, labels, landm, self.img_dim)
         image_t = _distort(image_t)
+        image_t = _random_corruption(image_t)
         image_t = _pad_to_square(image_t,self.rgb_means, pad_image_flag)
         image_t, boxes_t, landm_t = _mirror(image_t, boxes_t, landm_t)
         height, width, _ = image_t.shape
         image_t = _resize_subtract_mean(image_t, self.img_dim, self.rgb_means)
         boxes_t[:, 0::2] /= width
         boxes_t[:, 1::2] /= height
-
         landm_t[:, 0::2] /= width
         landm_t[:, 1::2] /= height
-
         labels_t = np.expand_dims(labels_t, 1)
         targets_t = np.hstack((boxes_t, landm_t, labels_t))
 
